@@ -191,6 +191,28 @@ int  ComputeProximity( GDALRasterBandShadow *srcBand,
 %clear GDALRasterBandShadow *srcBand, GDALRasterBandShadow *proximityBand;
 
 /************************************************************************/
+/*                          ComputeProximity_Geodesic()                          */
+/************************************************************************/
+#ifndef SWIGJAVA
+%feature( "kwargs" ) ComputeProximity_Geodesic;
+#endif
+%apply Pointer NONNULL {GDALRasterBandShadow *srcBand, GDALRasterBandShadow *proximityBand};
+%inline %{
+int  ComputeProximity_Geodesic( GDALRasterBandShadow *srcBand,
+                       GDALRasterBandShadow *proximityBand,
+                       char **options = NULL,
+                       GDALProgressFunc callback=NULL,
+                       void* callback_data=NULL) {
+
+    CPLErrorReset();
+
+    return GDALComputeProximity_Geodesic( srcBand, proximityBand, options,
+                                 callback, callback_data );
+}
+%}
+%clear GDALRasterBandShadow *srcBand, GDALRasterBandShadow *proximityBand;
+
+/************************************************************************/
 /*                        RasterizeLayer()                              */
 /************************************************************************/
 

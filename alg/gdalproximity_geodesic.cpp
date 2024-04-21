@@ -34,6 +34,7 @@
 #include <cstdlib>
 
 #include <algorithm>
+#include <iostream>
 
 #include "cpl_conv.h"
 #include "cpl_error.h"
@@ -42,15 +43,15 @@
 #include "cpl_vsi.h"
 #include "gdal.h"
 
-static CPLErr ProcessProximityLine(GInt32 *panSrcScanline, int *panNearX,
+static CPLErr ProcessProximityLine_Geodesic(GInt32 *panSrcScanline, int *panNearX,
                                    int *panNearY, int bForward, int iLine,
                                    int nXSize, double nMaxDist,
                                    float *pafProximity,
                                    double *pdfSrcNoDataValue, int nTargetValues,
-                                   int *panTargetValues);
+                                   int *panTargetValues, double dLongitudeX, double dLatitudeY, double dResolution_x, double dResolution_y);
 
 /************************************************************************/
-/*                        GDALComputeProximity()                        */
+/*                        GDALComputeProximity_Geodesic()                        */
 /************************************************************************/
 
 /**
@@ -107,15 +108,15 @@ If this option is set, all pixels within the MAXDIST threadhold are
 set to this fixed value instead of to a proximity distance.
 */
 
-CPLErr CPL_STDCALL GDALComputeProximity(GDALRasterBandH hSrcBand,
+CPLErr CPL_STDCALL GDALComputeProximity_Geodesic(GDALRasterBandH hSrcBand,
                                         GDALRasterBandH hProximityBand,
                                         char **papszOptions,
                                         GDALProgressFunc pfnProgress,
                                         void *pProgressArg)
 
 {
-    VALIDATE_POINTER1(hSrcBand, "GDALComputeProximity", CE_Failure);
-    VALIDATE_POINTER1(hProximityBand, "GDALComputeProximity", CE_Failure);
+    VALIDATE_POINTER1(hSrcBand, "GDALComputeProximity_Geodesic", CE_Failure);
+    VALIDATE_POINTER1(hProximityBand, "GDALComputeProximity_Geodesic", CE_Failure);
 
     if (pfnProgress == nullptr)
         pfnProgress = GDALDummyProgress;
@@ -126,9 +127,10 @@ CPLErr CPL_STDCALL GDALComputeProximity(GDALRasterBandH hSrcBand,
     double dfDistMult = 1.0;
     double topLeftCornerX = -180;
     double topLeftCornerY = 90.0;
-    double LeftX=0.0;
-    double LeftY=0.0;
-    double dResolution_x=0.0
+    double dLongitudeX=0.0;
+    double dLatitudeY=0.0;
+    double dResolution_x=0.0083;
+    double dResolution_y=0.0083;
 
     const char *pszOpt = CSLFetchNameValue(papszOptions, "DISTUNITS");
     if (pszOpt)
@@ -150,7 +152,13 @@ CPLErr CPL_STDCALL GDALComputeProximity(GDALRasterBandH hSrcBand,
 
                 topLeftCornerX = adfGeoTransform[0];
                 topLeftCornerY = adfGeoTransform[3];
-                dResolution_x = adfGeoTransform[1];
+                dResolution_x  = dfDistMult;
+                dResolution_y = std::abs(adfGeoTransform[5]);
+                //print the information using std::cout
+                std::cout << "topLeftCornerX: " << topLeftCornerX << std::endl;
+                std::cout << "topLeftCornerY: " << topLeftCornerY << std::endl;
+                std::cout << "dfDistMult: " << dfDistMult << std::endl;
+
             }
         }
         else if (!EQUAL(pszOpt, "PIXEL"))
@@ -287,7 +295,7 @@ CPLErr CPL_STDCALL GDALComputeProximity(GDALRasterBandH hSrcBand,
         if (hDriver == nullptr)
         {
             CPLError(CE_Failure, CPLE_AppDefined,
-                     "GDALComputeProximity needs GTiff driver");
+                     "GDALComputeProximity_Geodesic needs GTiff driver");
             eErr = CE_Failure;
             goto end;
         }
@@ -346,18 +354,18 @@ CPLErr CPL_STDCALL GDALComputeProximity(GDALRasterBandH hSrcBand,
             pafProximity[i] = -1.0;
 
         //get the georeferenced coordinates of the top left corner of the current line
-        LeftX = topLeftCornerX;
-        LeftY = topLeftCornerY - iLine * dfDistMult;
+        dLongitudeX = topLeftCornerX + 0.5 * dResolution_x;
+        dLatitudeY = topLeftCornerY- 0.5 * dResolution_y; // - iLine * dResolution_y;
 
         // Left to right.
-        ProcessProximityLine(panSrcScanline, panNearX, panNearY, TRUE, iLine,
+        ProcessProximityLine_Geodesic(panSrcScanline, panNearX, panNearY, TRUE, iLine,
                              nXSize, dfMaxDist, pafProximity, pdfSrcNoData,
-                             nTargetValues, panTargetValues, LeftX, LeftY,dResolution_x);
+                             nTargetValues, panTargetValues, dLongitudeX, dLatitudeY, dResolution_x, dResolution_y);
 
         // Right to Left.
-        ProcessProximityLine(panSrcScanline, panNearX, panNearY, FALSE, iLine,
+        ProcessProximityLine_Geodesic(panSrcScanline, panNearX, panNearY, FALSE, iLine,
                              nXSize, dfMaxDist, pafProximity, pdfSrcNoData,
-                             nTargetValues, panTargetValues, LeftX, LeftY, dResolution_x);
+                             nTargetValues, panTargetValues, dLongitudeX, dLatitudeY, dResolution_x, dResolution_y);
 
         // Write out results.
         eErr = GDALRasterIO(hWorkProximityBand, GF_Write, 0, iLine, nXSize, 1,
@@ -400,18 +408,18 @@ CPLErr CPL_STDCALL GDALComputeProximity(GDALRasterBandH hSrcBand,
             break;
 
         //get the georeferenced coordinates of the top left corner of the current line
-        LeftX = topLeftCornerX;
-        LeftY = topLeftCornerY - iLine * dfDistMult;
+        dLongitudeX = topLeftCornerX + 0.5 * dResolution_x;
+        dLatitudeY = topLeftCornerY- 0.5 * dResolution_y; // - iLine * dResolution_y;
 
         // Right to left.
-        ProcessProximityLine(panSrcScanline, panNearX, panNearY, FALSE, iLine,
+        ProcessProximityLine_Geodesic(panSrcScanline, panNearX, panNearY, FALSE, iLine,
                              nXSize, dfMaxDist, pafProximity, pdfSrcNoData,
-                             nTargetValues, panTargetValues, LeftX, LeftY , dResolution_x);
+                             nTargetValues, panTargetValues, dLongitudeX, dLatitudeY, dResolution_x, dResolution_y);
 
         // Left to right.
-        ProcessProximityLine(panSrcScanline, panNearX, panNearY, TRUE, iLine,
+        ProcessProximityLine_Geodesic(panSrcScanline, panNearX, panNearY, TRUE, iLine,
                              nXSize, dfMaxDist, pafProximity, pdfSrcNoData,
-                             nTargetValues, panTargetValues, LeftX, LeftY, dResolution_x);
+                             nTargetValues, panTargetValues, dLongitudeX, dLatitudeY, dResolution_x, dResolution_y);
 
         // Final post processing of distances.
         for (int i = 0; i < nXSize; i++)
@@ -424,7 +432,7 @@ CPLErr CPL_STDCALL GDALComputeProximity(GDALRasterBandH hSrcBand,
                     pafProximity[i] = static_cast<float>(dfFixedBufVal);
                 else
                     pafProximity[i] =
-                        static_cast<float>(pafProximity[i] * dfDistMult);
+                        static_cast<float>(pafProximity[i]);
             }
         }
 
@@ -474,7 +482,13 @@ end:
 
 static double GeodesicDistance(double lon1,  double lon2, double lat1, double lat2)
 {
-    const double R = 6371.0; // Radius of the Earth in kilometers
+    if (lon1 < -180 || lon1 > 180 || lon2 < -180 || lon2 > 180 ||
+        lat1 < -90 || lat1 > 90 || lat2 < -90 || lat2 > 90) {
+        // Handle the error: you could return a special value, throw an exception, etc.
+        // For this example, we'll return NaN.
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+    const double R = 6371.0 * 1000; // Radius of the Earth in kilometers
     const double dLat = (lat2 - lat1) * M_PI / 180.0;
     const double dLon = (lon2 - lon1) * M_PI / 180.0;
 
@@ -489,25 +503,25 @@ static double GeodesicDistance(double lon1,  double lon2, double lat1, double la
 }
 
 /************************************************************************/
-/*                        ProcessProximityLine()                        */
+/*                        ProcessProximityLine_Geodesic()                        */
 /************************************************************************/
 
-static CPLErr ProcessProximityLine(GInt32 *panSrcScanline, int *panNearX,
+static CPLErr ProcessProximityLine_Geodesic(GInt32 *panSrcScanline, int *panNearX,
                                    int *panNearY, int bForward, int iLine,
                                    int nXSize, double dfMaxDist,
                                    float *pafProximity,
                                    double *pdfSrcNoDataValue, int nTargetValues,
-                                   int *panTargetValues, double LeftX, double LeftY, double dResolution_x)
+                                   int *panTargetValues, double dLongitudeX, double dLatitudeY, double dResolution_x, double dResolution_y)
 
 {
     const int iStart = bForward ? 0 : nXSize - 1;
     const int iEnd = bForward ? nXSize : -1;
     const int iStep = bForward ? 1 : -1;
 
-    double lon0;
-    double lat0;
-    double lon1;
-    double lat1;
+    double dLon0;
+    double dLat0;
+    double dLon1;
+    double dLat1;
 
     for (int iPixel = iStart; iPixel != iEnd; iPixel += iStep)
     {
@@ -548,15 +562,19 @@ static CPLErr ProcessProximityLine(GInt32 *panSrcScanline, int *panNearX,
         //double dfNearDistSq = std::max(dfMaxDist, static_cast<double>(nXSize)) *
         //                      std::max(dfMaxDist, static_cast<double>(nXSize)) *
         //                      2.0;
+        //const double dfDistSq = SquareDistance(panNearX[iPixel], iPixel,
+        //                                           panNearY[iPixel], iLine);
         //replace the distance with the earth radius
-        double dfNearDistSq = 6371000;                    
+        double dfNearDistSq = 6371000.0;                    
 
         if (panNearX[iPixel] != -1)
         {
-            dLon0 = LeftX + iPixel * dResolution_x;
-            dLat0 = LeftY ;
-            dLon1 = LeftX + panNearX[iPixel] * dResolution_x;
-            dLat1 = LeftY ;
+            //start 
+            dLon0 = dLongitudeX + iPixel * dResolution_x;
+            dLat0 = dLatitudeY - iLine * dResolution_y;
+            //end 
+            dLon1 = dLongitudeX + panNearX[iPixel] * dResolution_x;
+            dLat1 = dLatitudeY - panNearY[iPixel] * dResolution_y;
             const double dfDistSq = GeodesicDistance(dLon0, dLon1, dLat0, dLat1);
 
             if (dfDistSq < dfNearDistSq)
@@ -583,10 +601,12 @@ static CPLErr ProcessProximityLine(GInt32 *panSrcScanline, int *panNearX,
 
             //const double dfDistSq =
             //    GeodesicDistance(panNearX[iLast], iPixel, panNearY[iLast], iLine);
-            dLon0 = LeftX + iPixel * dResolution_x;
-            dLat0 = LeftY ;
-            dLon1 = LeftX + panNearX[iLast] * dResolution_x;
-            dLat1 = LeftY ;
+            //start 
+            dLon0 = dLongitudeX + iPixel * dResolution_x;
+            dLat0 = dLatitudeY - iLine * dResolution_y;
+            //end 
+            dLon1 = dLongitudeX + panNearX[iLast] * dResolution_x;
+            dLat1 = dLatitudeY - panNearY[iLast] * dResolution_y;
             
             const double dfDistSq = GeodesicDistance(dLon0, dLon1, dLat0, dLat1);
 
@@ -610,10 +630,12 @@ static CPLErr ProcessProximityLine(GInt32 *panSrcScanline, int *panNearX,
         {
             //const double dfDistSq =
             //    GeodesicDistance(panNearX[iTR], iPixel, panNearY[iTR], iLine);
-            dLon0 = LeftX + iPixel * dResolution_x;
-            dLat0 = LeftY ;
-            dLon1 = LeftX + panNearX[iTR] * dResolution_x;
-            dLat1 = LeftY ;
+            //start 
+            dLon0 = dLongitudeX + iPixel * dResolution_x;
+            dLat0 = dLatitudeY - iLine * dResolution_y;
+            //end 
+            dLon1 = dLongitudeX + panNearX[iTR] * dResolution_x;
+            dLat1 = dLatitudeY - panNearY[iTR] * dResolution_y;
 
             const double dfDistSq = GeodesicDistance(dLon0, dLon1, dLat0, dLat1);
 
@@ -633,12 +655,10 @@ static CPLErr ProcessProximityLine(GInt32 *panSrcScanline, int *panNearX,
         if (panNearX[iPixel] != -1 &&
             (pdfSrcNoDataValue == nullptr ||
              panSrcScanline[iPixel] != *pdfSrcNoDataValue) &&
-            dfNearDistSq <= dfMaxDist * dfMaxDist &&
-            (pafProximity[iPixel] < 0 ||
-             dfNearDistSq < static_cast<double>(pafProximity[iPixel]) *
-                                pafProximity[iPixel]))
+            dfNearDistSq <= dfMaxDist && (pafProximity[iPixel] < 0 ||
+             dfNearDistSq < static_cast<double>(pafProximity[iPixel]) ) )
             {
-            pafProximity[iPixel] = static_cast<float>(sqrt(dfNearDistSq));
+                pafProximity[iPixel] = static_cast<float>(dfNearDistSq);
             }
     }
 

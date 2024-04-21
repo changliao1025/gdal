@@ -20,6 +20,7 @@ add_library(
   gdalmediancut.cpp
   gdalpansharpen.cpp
   gdalproximity.cpp
+  gdalproximity_geodesic.cpp
   gdalrasterize.cpp
   gdalrasterpolygonenumerator.cpp
   gdalsievefilter.cpp

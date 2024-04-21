@@ -66,6 +66,12 @@ CPLErr CPL_DLL CPL_STDCALL GDALComputeProximity(GDALRasterBandH hSrcBand,
                                                 GDALProgressFunc pfnProgress,
                                                 void *pProgressArg);
 
+CPLErr CPL_DLL CPL_STDCALL GDALComputeProximity_Geodesic(GDALRasterBandH hSrcBand,
+                                                GDALRasterBandH hProximityBand,
+                                                char **papszOptions,
+                                                GDALProgressFunc pfnProgress,
+                                                void *pProgressArg);
+
 CPLErr CPL_DLL CPL_STDCALL GDALFillNodata(
     GDALRasterBandH hTargetBand, GDALRasterBandH hMaskBand,
     double dfMaxSearchDist, int bDeprecatedOption, int nSmoothingIterations,

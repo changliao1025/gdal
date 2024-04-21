@@ -239,6 +239,7 @@ def main(argv):
         "gdalmove.py",
         "gdal_polygonize.py",
         "gdal_proximity.py",
+        "gdal_proximity_geodesic.py",
         "gdal_rasterize",
         "gdal_retile.py",
         "gdal_sieve.py",
